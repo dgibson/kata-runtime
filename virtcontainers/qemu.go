@@ -1348,7 +1348,6 @@ func (q *qemu) hotplugVFIODevice(device *config.VFIODev, op operation) (err erro
 	machinneType := q.hypervisorConfig().HypervisorMachineType
 
 	if op == addDevice {
-
 		buf, _ := json.Marshal(device)
 		q.Logger().WithFields(logrus.Fields{
 			"machine-type":             machinneType,
@@ -1372,6 +1371,9 @@ func (q *qemu) hotplugVFIODevice(device *config.VFIODev, op operation) (err erro
 			default:
 				device.Bus = ""
 			}
+
+			// HACK: If we plug too early in the guest's lifetime, the hotplug fails for reasons I have not yet debugged
+			time.Sleep(2 * time.Second)
 
 			switch device.Type {
 			case config.VFIODeviceNormalType:
