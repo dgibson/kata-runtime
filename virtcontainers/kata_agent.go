@@ -77,6 +77,7 @@ var (
 	kataSCSIDevType             = "scsi"
 	kataNvdimmDevType           = "nvdimm"
 	kataVirtioFSDevType         = "virtio-fs"
+	kataVfioDevType             = "vfio"
 	sharedDir9pOptions          = []string{"trans=virtio,version=9p2000.L,cache=mmap", "nodev"}
 	sharedDirVirtioFSOptions    = []string{}
 	sharedDirVirtioFSDaxOptions = "dax"
@@ -1253,6 +1254,31 @@ func (k *kataAgent) appendVhostUserBlkDevice(dev ContainerDevice, c *Container) 
 	return kataDevice
 }
 
+func (k *kataAgent) appendVfioDevice(dev ContainerDevice, c *Container) *grpc.Device {
+	device := c.sandbox.devManager.GetDeviceByID(dev.ID)
+
+	devList, ok := device.GetDeviceInfo().([]*config.VFIODev)
+	if !ok || devList == nil {
+		k.Logger().WithField("device", device).Error("malformed vfio device")
+		return nil
+	}
+
+	if len(devList) != 1 {
+		k.Logger().WithField("device", device).Warning("Can't handle VFIO groups with >  1 device")
+		return nil
+	}
+
+	pciDev := devList[0]
+
+	kataDevice := &grpc.Device{
+		ContainerPath: dev.ContainerPath,
+		Type:          kataVfioDevType,
+		Id:            pciDev.GuestPciPath,
+	}
+
+	return kataDevice
+}
+
 func (k *kataAgent) appendDevices(deviceList []*grpc.Device, c *Container) []*grpc.Device {
 	var kataDevice *grpc.Device
 
@@ -1268,6 +1294,8 @@ func (k *kataAgent) appendDevices(deviceList []*grpc.Device, c *Container) []*gr
 			kataDevice = k.appendBlockDevice(dev, c)
 		case config.VhostUserBlk:
 			kataDevice = k.appendVhostUserBlkDevice(dev, c)
+		case config.DeviceVFIO:
+			kataDevice = k.appendVfioDevice(dev, c)
 		}
 
 		if kataDevice == nil {
