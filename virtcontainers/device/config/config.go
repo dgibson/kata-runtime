@@ -222,6 +222,9 @@ type VFIODev struct {
 
 	// Bus of VFIO PCIe device
 	Bus string
+
+	// Guest PCI address as <bridge slot>/<device slot>
+	GuestPciPath string
 }
 
 // RNGDev represents a random number generator device

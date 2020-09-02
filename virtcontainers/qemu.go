@@ -1275,6 +1275,59 @@ func (q *qemu) hotplugVhostUserDevice(vAttr *config.VhostUserDeviceAttrs, op ope
 	return nil
 }
 
+func (q *qemu) qomGetSlot(qomPath string) (uint8, error) {
+	addr, err := q.qmpMonitorCh.qmp.ExecQomGet(q.qmpMonitorCh.ctx, qomPath, "addr")
+	if err != nil {
+		return 0xff, err
+	}
+	addrf, ok := addr.(float64)
+	// XXX going via float makes no real sense, but that's how
+	// JSON works, and we should get away with it for the small
+	// values we have here
+	if !ok {
+		return 0xff, fmt.Errorf("addr QOM property of %s is %t not a number", qomPath, addr)
+	}
+	addri := uint8(addrf)
+
+	if (addri & 0x7) != 0 {
+		return 0xff, fmt.Errorf("Can't cope with non-zero function on %s", qomPath)
+	}
+
+	return addri >> 3, nil
+}
+
+func (q *qemu) vfioQuerySlots(qemuId string) (uint8, uint8, error) {
+	devSlot, err := q.qomGetSlot(qemuId)
+	if err != nil {
+		return 0xff, 0xff, err
+	}
+
+	busq, err := q.qmpMonitorCh.qmp.ExecQomGet(q.qmpMonitorCh.ctx, qemuId, "parent_bus")
+	if err != nil {
+		return 0xff, 0xff, err
+	}
+
+	bus, ok := busq.(string)
+	if !ok {
+		return 0xff, 0xff, fmt.Errorf("parent_bus QOM property of %s is %t not a string", qemuId, busq)
+	}
+
+	// Chop off the last QOM path component to go from the bus to
+	// its bridge
+	idx := strings.LastIndex(bus, "/")
+	if idx == -1 {
+		return 0xff, 0xff, fmt.Errorf("Bus has unexpected QOM path %s", bus)
+	}
+	bridge := bus[:idx]
+
+	bridgeSlot, err := q.qomGetSlot(bridge)
+	if err != nil {
+		return 0xff, 0xff, err
+	}
+
+	return bridgeSlot, devSlot, nil
+}
+
 func (q *qemu) hotplugVFIODevice(device *config.VFIODev, op operation) (err error) {
 	err = q.qmpSetup()
 	if err != nil {
@@ -1341,7 +1394,18 @@ func (q *qemu) hotplugVFIODevice(device *config.VFIODev, op operation) (err erro
 				err = fmt.Errorf("Incorrect VFIO device type found")
 			}
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		// XXX: In some circumstances we already know some or
+		// all of the address components, but in others we
+		// don't.  For simplicity, just query it back from
+		// qemu in all cases.
+		bridgeSlot, devSlot, err := q.vfioQuerySlots(devID)
+		if err != nil {
+			return err
+		}
+		device.GuestPciPath = fmt.Sprintf("%02x/%02x", bridgeSlot, devSlot)
 	} else {
 		q.Logger().WithField("dev-id", devID).Info("Start hot-unplug VFIO device")
 
