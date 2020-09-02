@@ -1270,10 +1270,13 @@ func (k *kataAgent) appendVfioDevice(dev ContainerDevice, c *Container) *grpc.De
 
 	pciDev := devList[0]
 
+	hostBdf := "0000:" + pciDev.BDF
+
 	kataDevice := &grpc.Device{
 		ContainerPath: dev.ContainerPath,
 		Type:          kataVfioDevType,
 		Id:            pciDev.GuestPciPath,
+		Options:       []string{hostBdf},
 	}
 
 	return kataDevice
