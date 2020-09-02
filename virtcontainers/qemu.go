@@ -1275,6 +1275,69 @@ func (q *qemu) hotplugVhostUserDevice(vAttr *config.VhostUserDeviceAttrs, op ope
 	return nil
 }
 
+// Query QMP to find the PCI slot of a device, given its QOM path or ID
+func (q *qemu) qomGetSlot(qomPath string) (uint8, error) {
+	addr, err := q.qmpMonitorCh.qmp.ExecQomGet(q.qmpMonitorCh.ctx, qomPath, "addr")
+	if err != nil {
+		return 0xff, err
+	}
+	addrf, ok := addr.(float64)
+	// XXX going via float makes no real sense, but that's how
+	// JSON works, and we'll get away with it for the small values
+	// we have here
+	if !ok {
+		return 0xff, fmt.Errorf("addr QOM property of %s is %t not a number", qomPath, addr)
+	}
+	addri := uint8(addrf)
+
+	if (addri & 0x7) != 0 {
+		return 0xff, fmt.Errorf("Unexpected non-zero PCI function on %s", qomPath)
+	}
+
+	return addri >> 3, nil
+}
+
+// Query QMP to find a device's PCI path given its QOM path or ID
+// "PCI path" means the PCI slot number of each bridge leading to the
+// device, and finally the device itself, as a '/' separated list
+func (q *qemu) qomGetPciPath(qemuID string) (string, error) {
+	// XXX: For now we assume there's exactly one bridge, since
+	// that's always how we configure qemu from Kata for now.  It
+	// would be good to generalize this to different PCI
+	// topologies
+	devSlot, err := q.qomGetSlot(qemuID)
+	if err != nil {
+		return "", err
+	}
+
+	busq, err := q.qmpMonitorCh.qmp.ExecQomGet(q.qmpMonitorCh.ctx, qemuID, "parent_bus")
+	if err != nil {
+		return "", err
+	}
+
+	bus, ok := busq.(string)
+	if !ok {
+		return "", fmt.Errorf("parent_bus QOM property of %s is %t not a string", qemuID, busq)
+	}
+
+	// `bus` is the QOM path of the QOM bus object, but we need
+	// the PCI bridge which manages that bus.  There doesn't seem
+	// to be a way to get that other than to simply drop the last
+	// path component.
+	idx := strings.LastIndex(bus, "/")
+	if idx == -1 {
+		return "", fmt.Errorf("Bus has unexpected QOM path %s", bus)
+	}
+	bridge := bus[:idx]
+
+	bridgeSlot, err := q.qomGetSlot(bridge)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%02x/%02x", bridgeSlot, devSlot), nil
+}
+
 func (q *qemu) hotplugVFIODevice(device *config.VFIODev, op operation) (err error) {
 	err = q.qmpSetup()
 	if err != nil {
@@ -1341,7 +1404,17 @@ func (q *qemu) hotplugVFIODevice(device *config.VFIODev, op operation) (err erro
 				err = fmt.Errorf("Incorrect VFIO device type found")
 			}
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		// XXX: In some circumstances we already know some or
+		// all of the address components, but in others we
+		// don't.  For simplicity, just query it back from
+		// qemu in all cases.
+		device.GuestPciPath, err = q.qomGetPciPath(devID)
+		if err != nil {
+			return err
+		}
 	} else {
 		q.Logger().WithField("dev-id", devID).Info("Start hot-unplug VFIO device")
 
