@@ -1251,20 +1251,27 @@ func (k *kataAgent) appendVfioDevice(dev ContainerDevice, c *Container) *grpc.De
 		return nil
 	}
 
-	if len(devList) != 1 {
-		k.Logger().WithField("device", device).Warning("Can't handle VFIO groups with >  1 device")
-		return nil
-	}
+	groupNum := filepath.Base(dev.ContainerPath)
 
-	pciDev := devList[0]
-
-	hostBdf := "0000:" + pciDev.BDF
-
+	// Each /dev/vfio/NN device represents a VFIO group, which
+	// could include several PCI devices.  So we give group
+	// information in the main structure, then list each
+	// individual PCI device in the Options array.
+	//
+	// Each option is formatted as "DDDD:BB:SS.F=NN/MM"
+	// DDDD:BB:SS.F is the device's PCI address on the *host*.  NN
+	// is PCI slot number of the device's bridge on the guest, and
+	// MM is the slot number of the device itself on the guest.
 	kataDevice := &grpc.Device{
 		ContainerPath: dev.ContainerPath,
 		Type:          kataVfioDevType,
-		Id:            pciDev.GuestPciPath,
-		Options:       []string{hostBdf},
+		Id:            groupNum,
+		Options:       make([]string, len(devList)),
+	}
+
+	for i, pciDev := range devList {
+		hostBdf := "0000:" + pciDev.BDF
+		kataDevice.Options[i] = fmt.Sprintf("%s=%s", hostBdf, pciDev.GuestPciPath)
 	}
 
 	return kataDevice
