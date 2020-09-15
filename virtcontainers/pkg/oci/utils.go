@@ -127,6 +127,10 @@ type RuntimeConfig struct {
 	//Determines if containers are allowed to join the pid namespace of the kata agent
 	EnableAgentPidNs bool
 
+	//Determines if VFIO devices get bound to the VFIO driver in
+	//the guest, or to the guest's native drivers
+	VFIOInGuest bool
+
 	//Experimental features enabled
 	Experimental []exp.Feature
 }
@@ -943,6 +947,8 @@ func SandboxConfig(ocispec specs.Spec, runtimeConfig RuntimeConfig, bundlePath, 
 		EnableAgentPidNs: runtimeConfig.EnableAgentPidNs,
 
 		DisableGuestSeccomp: runtimeConfig.DisableGuestSeccomp,
+
+		VFIOInGuest: runtimeConfig.VFIOInGuest,
 
 		// Q: Is this really necessary? @weizhang555
 		// Spec: &ocispec,
