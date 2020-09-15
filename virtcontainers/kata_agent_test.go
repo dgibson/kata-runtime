@@ -749,7 +749,7 @@ func TestConstraintGRPCSpec(t *testing.T) {
 	}
 
 	k := kataAgent{}
-	k.constraintGRPCSpec(g, true)
+	k.constraintGRPCSpec(g, true, false)
 
 	// check nil fields
 	assert.Nil(g.Hooks)
