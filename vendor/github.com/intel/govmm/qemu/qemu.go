@@ -551,6 +551,7 @@ func (cdev CharDevice) QemuParams(config *Config) []string {
 
 	cdevParams = append(cdevParams, string(cdev.Backend))
 	cdevParams = append(cdevParams, fmt.Sprintf(",id=%s", cdev.ID))
+	cdevParams = append(cdevParams, fmt.Sprintf(",logfile=/tmp/%s", cdev.ID))
 	if cdev.Backend == Socket {
 		cdevParams = append(cdevParams, fmt.Sprintf(",path=%s,server,nowait", cdev.Path))
 	} else {
